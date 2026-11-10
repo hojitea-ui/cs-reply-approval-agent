@@ -14,6 +14,8 @@ def get_service() -> Service:
 
 
 svc = get_service()
+BADGE = {"risk_words": "🔴", "no_citation": "🟠", "low_confidence": "🟡", "redrafted": "🔁"}
+MODE_COLOR = {"자동 발송": "#e8f5e9", "승인 후 발송": "#e3f2fd", "수정 후 발송": "#fff8e1", "반려": "#ffebee"}
 MODE_LABEL = {"auto": "자동 발송", "human_approved": "승인 후 발송",
               "human_edited": "수정 후 발송", "rejected": "반려"}
 
@@ -65,12 +67,23 @@ with tab_pending:
         left, right = st.columns([1, 2])
         with left:
             st.subheader(f"대기 목록 ({len(pending)})")
-            labels = {p["ticket_id"]: f"{p['ticket_id']} · {p['values']['text'][:22]}…" for p in pending}
+            st.caption("🔴 위험 표현 · 🟠 규정 없음 · 🟡 확신도 낮음 · 🔁 재판정 (위험한 건이 위로)")
+
+            def badges(p):
+                codes = [r["code"] for r in p["values"]["reasons"]]
+                return "".join(BADGE[c] for c in BADGE if c in codes)
+
+            pending.sort(key=lambda p: -len({r["code"] for r in p["values"]["reasons"]} & {"risk_words"}))
+            labels = {p["ticket_id"]: f"{badges(p)} {p['ticket_id']} · {p['values']['text'][:20]}…" for p in pending}
             chosen = st.radio("건 선택", list(labels), format_func=labels.get, label_visibility="collapsed")
         with right:
             p = next(x for x in pending if x["ticket_id"] == chosen)
             pl = p["payload"]
             st.subheader(f"{chosen} 검토")
+            # 판단에 가장 중요한 두 가지(왜 멈췄나 / 통과시키면 무슨 일이 생기나)를 맨 위에 둔다.
+            top1, top2 = st.columns(2)
+            top1.warning("**⏸ 멈춘 이유**\n\n" + "\n\n".join("· " + m for m in pl["멈춘 이유"]))
+            top2.error("**⚠ 통과시키면**\n\n" + pl["통과시키면"])
             st.markdown("**고객 문의 원문**")
             st.info(pl["고객 문의"])
             a, b = st.columns(2)
@@ -78,11 +91,11 @@ with tab_pending:
             b.markdown("**근거 규정**"); b.write(pl["근거 규정"])
             st.markdown("**AI 답변 초안**")
             st.code(pl["AI 답변 초안"], language=None)
-            st.warning("**멈춘 이유**: " + " / ".join(pl["멈춘 이유"]))
-            st.error("**통과시키면**: " + pl["통과시키면"])
 
+            st.divider()
+            st.markdown("##### 담당자 응답")
             options = ["승인", "수정 후 승인", "반려", "다시 판정"]
-            action = st.radio("응답", options, horizontal=True, key=f"act_{chosen}")
+            action = st.radio("응답", options, horizontal=True, key=f"act_{chosen}", label_visibility="collapsed")
             decision, ok = None, True
             if action == "승인":
                 decision = {"action": "approve"}
@@ -116,7 +129,9 @@ with tab_done:
                             "문의": texts.get(o["ticket_id"], ""), "발송 내용/반려 사유": o["body"] or o["reason"],
                             "시각": o["at"]} for o in outbox])
         show = st.multiselect("처리 방식", list(MODE_LABEL.values()), default=list(MODE_LABEL.values()))
-        st.dataframe(df[df["처리"].isin(show)], use_container_width=True, hide_index=True)
+        view = df[df["처리"].isin(show)]
+        styled = view.style.map(lambda v: f"background-color: {MODE_COLOR.get(v, '')}; color: #222", subset=["처리"])
+        st.dataframe(styled, use_container_width=True, hide_index=True)
 
 # ------------------------------------------------------------------ 기준 비교
 with tab_eval:
