@@ -1,0 +1,4 @@
+langgraph>=1.0
+langgraph-checkpoint-sqlite
+streamlit
+pandas
